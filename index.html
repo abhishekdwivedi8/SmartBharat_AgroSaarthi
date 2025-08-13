@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.png" type="image/png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Bharat Innovation - Empowering Farmers Through Technology</title>
+    <meta name="description" content="Smart Bharat Innovation Project - Agricultural Technology Platform" />
+    <meta name="author" content="Smart Bharat Innovation" />
+
+    <meta property="og:title" content="Smart Bharat Innovation - Empowering Farmers" />
+    <meta property="og:description" content="Comprehensive agricultural platform with voice assistance, crop health detection, and real-time market prices" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/favicon.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@SmartBharatInnovation" />
+    <meta name="twitter:image" content="/favicon.png" />
+    
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#22c55e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Kisan Sathi" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    
+    <!-- Offline Support -->
+    <link rel="prefetch" href="/offline.html" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
