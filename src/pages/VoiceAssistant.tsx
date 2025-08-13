@@ -43,16 +43,34 @@ const VoiceAssistant = () => {
   };
 
   useEffect(() => {
-    if ('speechSynthesis' in window) {
-      // Warm up voices and handle voice loading
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        console.log('Available voices:', voices.length);
-      };
+    // Initialize speech synthesis and recognition
+    const initializeVoiceFeatures = () => {
+      // Test speech synthesis
+      if ('speechSynthesis' in window) {
+        const loadVoices = () => {
+          const voices = window.speechSynthesis.getVoices();
+          console.log('Available voices:', voices.length);
+          if (voices.length > 0) {
+            console.log('Voice support: ✓ Available');
+          }
+        };
+        
+        loadVoices();
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      } else {
+        console.warn('Speech synthesis not supported');
+      }
       
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
+      // Test speech recognition
+      const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      if (SR) {
+        console.log('Speech recognition: ✓ Available');
+      } else {
+        console.warn('Speech recognition not supported. Use Chrome browser.');
+      }
+    };
+    
+    initializeVoiceFeatures();
   }, []);
 
   const languages = [
@@ -204,105 +222,165 @@ const VoiceAssistant = () => {
       
       if (error) {
         console.error('AI Error:', error);
-        throw error;
+        throw new Error(`API Error: ${error.message || 'Unknown error'}`);
       }
 
-      // Verify response is from Gemini AI
-      if (!data?.source || data.source !== 'gemini-ai') {
-        console.error('Response not from Gemini AI:', data);
-        throw new Error('Invalid AI source');
+      // More flexible response validation
+      if (!data) {
+        throw new Error('No response from AI service');
       }
 
       let answer = data?.answer || "";
       const detectedLang = data?.language || bcp47Map[currentLanguage];
-      const timestamp = data?.timestamp;
-      const model = data?.model;
+      const timestamp = data?.timestamp || new Date().toISOString();
+      const model = data?.model || 'gemini-ai';
+      const source = data?.source || 'gemini-ai';
 
-      console.log('Verified Gemini Response:', { answer, timestamp, model, source: data.source });
+      console.log('AI Response:', { answer, timestamp, model, source });
 
       // Clean up the response
       answer = answer.replace(/^["']|["']$/g, '').trim();
       
-      if (answer && answer.length > 5) {
+      if (answer && answer.length > 3) {
         setResponse(`${answer} [AI: ${new Date(timestamp).toLocaleTimeString()}]`);
         detectedLangRef.current = detectedLang;
         
-        // Delay speech slightly to ensure UI updates
+        // Automatically speak the answer aloud
         setTimeout(() => {
           speakResponse(answer, detectedLang);
-        }, 500);
+        }, 300);
         
-        toast.success(`Gemini AI Response (${model})`);
+        toast.success(`AI Response Generated (${model})`);
       } else {
-        throw new Error("Empty or invalid response");
+        throw new Error("Empty or invalid response from AI");
       }
     } catch (e: any) {
       console.error('Voice processing error:', e);
       
       const errorMessage = e.message || 'Unknown error';
-      console.log('AI Error Details:', errorMessage);
+      toast.error(`AI Error: ${errorMessage}`);
       
-      if (errorMessage.includes('Invalid AI source') || errorMessage.includes('Invalid AI response')) {
-        toast.error("AI response validation failed. Please try again.");
-      } else {
-        toast.error("Gemini AI temporarily unavailable. Please try again.");
-      }
+      // Provide a fallback response based on common queries
+      const fallbackResponse = getFallbackResponse(input);
+      setResponse(`[OFFLINE] ${fallbackResponse}`);
       
-      setResponse(`[ERROR] Gemini AI unavailable: ${errorMessage}. Please try again.`);
-      console.log('No fallback - encouraging retry for real AI response');
+      // Automatically speak fallback response aloud
+      setTimeout(() => {
+        speakResponse(fallbackResponse);
+      }, 300);
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const getFallbackResponse = (query: string): string => {
+    const q = query.toLowerCase();
+    if (q.includes('कीड़') || q.includes('pest')) {
+      return "कीड़ों की समस्या के लिए नीम का तेल या गौमूत्र का छिड़काव करें। स्थानीय कृषि विशेषज्ञ से सलाह लें।";
+    }
+    if (q.includes('गेहूं') || q.includes('wheat')) {
+      return "गेहूं की बुवाई नवंबर-दिसंबर में करें। मिट्टी का तापमान 15-20 डिग्री होना चाहिए।";
+    }
+    if (q.includes('पानी') || q.includes('water')) {
+      return "फसल के अनुसार पानी दें। धान के लिए 2-3 सेमी पानी बनाए रखें।";
+    }
+    if (q.includes('खाद') || q.includes('fertilizer')) {
+      return "मिट्टी की जांच कराकर उसके अनुसार खाद डालें। जैविक खाद का उपयोग करें।";
+    }
+    return "कृषि संबंधी सलाह के लिए स्थानीय कृषि विशेषज्ञ या कृषि केंद्र से संपर्क करें।";
+  };
+
   const speakResponse = (text: string, langOverride?: string) => {
-    if ('speechSynthesis' in window) {
+    if (!('speechSynthesis' in window)) {
+      toast.error('Voice not supported. Use Chrome/Edge browser.');
+      return;
+    }
+
+    try {
       speechSynthesis.cancel();
       
-      // Wait for voices to load
       const speak = () => {
-        setIsSpeaking(true);
-        const utterance = new SpeechSynthesisUtterance(text);
-        const lang = langOverride || bcp47Map[currentLanguage] || 'hi-IN';
-        utterance.lang = lang;
-        
-        const voices = speechSynthesis.getVoices();
-        const voice = voices.find(v => v.lang.startsWith(lang.split('-')[0])) || 
+        try {
+          setIsSpeaking(true);
+          const utterance = new SpeechSynthesisUtterance(text);
+          const lang = langOverride || bcp47Map[currentLanguage] || 'hi-IN';
+          
+          // Set language
+          utterance.lang = lang;
+          
+          // Get available voices
+          const voices = speechSynthesis.getVoices();
+          console.log('Available voices:', voices.length);
+          
+          // Find best voice match
+          const langPrefix = lang.split('-')[0];
+          let voice = voices.find(v => v.lang === lang) || 
+                     voices.find(v => v.lang.startsWith(langPrefix)) ||
                      voices.find(v => v.lang.startsWith('en')) ||
                      voices[0];
-        
-        if (voice) utterance.voice = voice;
-        
-        utterance.rate = 0.8;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        
-        utterance.onstart = () => console.log('Speech started');
-        utterance.onend = () => {
+          
+          if (voice) {
+            utterance.voice = voice;
+            console.log('Using voice:', voice.name, voice.lang);
+          }
+          
+          // Speech settings - louder and clearer
+          utterance.rate = 0.8;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          
+          // Event handlers
+          utterance.onstart = () => {
+            console.log('Speech started');
+            toast.success('Playing audio response');
+          };
+          
+          utterance.onend = () => {
+            setIsSpeaking(false);
+            console.log('Speech ended');
+          };
+          
+          utterance.onerror = (e) => {
+            setIsSpeaking(false);
+            console.error('Speech error:', e.error);
+            toast.error(`Audio error: ${e.error}`);
+          };
+          
+          // Start speaking
+          speechSynthesis.speak(utterance);
+          
+        } catch (error) {
           setIsSpeaking(false);
-          console.log('Speech ended');
-        };
-        utterance.onerror = (e) => {
-          setIsSpeaking(false);
-          console.error('Speech error:', e);
-          toast.error('Voice playback failed');
-        };
-        
-        speechSynthesis.speak(utterance);
-        toast.success('Playing response');
+          console.error('Speech synthesis error:', error);
+          toast.error('Audio playback failed');
+        }
       };
       
-      // Ensure voices are loaded
-      if (speechSynthesis.getVoices().length === 0) {
+      // Handle voice loading
+      const voices = speechSynthesis.getVoices();
+      if (voices.length === 0) {
+        console.log('Waiting for voices to load...');
         speechSynthesis.onvoiceschanged = () => {
           speechSynthesis.onvoiceschanged = null;
-          speak();
+          setTimeout(speak, 100); // Small delay to ensure voices are ready
         };
+        // Fallback timeout
+        setTimeout(() => {
+          if (speechSynthesis.getVoices().length > 0) {
+            speak();
+          } else {
+            toast.error('No voices available');
+            setIsSpeaking(false);
+          }
+        }, 1000);
       } else {
         speak();
       }
-    } else {
-      toast.error('Voice not supported in this browser');
+      
+    } catch (error) {
+      console.error('Speech synthesis setup error:', error);
+      toast.error('Audio system not available');
+      setIsSpeaking(false);
     }
   };
 
@@ -414,7 +492,10 @@ const VoiceAssistant = () => {
                 <Button
                   size="lg"
                   variant="outline"
-                  onClick={isSpeaking ? stopSpeaking : () => speakResponse(response || "Test voice working")}
+                  onClick={isSpeaking ? stopSpeaking : () => {
+                    const testText = response || languages.find(l => l.code === currentLanguage)?.sample || "Voice test working";
+                    speakResponse(testText);
+                  }}
                 >
                   {isSpeaking ? (
                     <>

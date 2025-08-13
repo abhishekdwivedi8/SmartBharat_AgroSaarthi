@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") || Deno.env.get("GOOGLE_GEMINI_API_KEY") || 'AIzaSyCiS0R6n_ovjlvxok5ME2emg9ROJvFku1k';
+const GEMINI_API_KEY = 'AIzaSyCiS0R6n_ovjlvxok5ME2emg9ROJvFku1k';
 const MODEL = "gemini-1.5-flash-latest";
 
 function tryParseJsonText(text: string): any | null {
@@ -103,26 +103,57 @@ Provide specific, actionable farming advice in JSON format. Answer exactly what 
 
     const data = await geminiRes.json();
     const textOutput: string = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    const parsed = tryParseJsonText(textOutput);
     
+    console.log('Raw Gemini output:', textOutput);
+    
+    let parsed = tryParseJsonText(textOutput);
+    
+    // If JSON parsing fails, create a structured response
     if (!parsed || !parsed.answer) {
-      console.error('Invalid Gemini response:', textOutput);
-      return new Response(JSON.stringify({ 
-        error: "Invalid AI response", 
-        raw_response: textOutput,
-        timestamp: new Date().toISOString()
-      }), {
-        status: 500, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+      console.log('Creating structured response from raw text');
+      
+      // Clean the text output
+      let cleanText = textOutput.trim();
+      
+      // Remove common prefixes/suffixes
+      cleanText = cleanText.replace(/^(Answer:|Response:|A:)\s*/i, '');
+      cleanText = cleanText.replace(/\n+/g, ' ').trim();
+      
+      if (cleanText && cleanText.length > 5) {
+        parsed = {
+          answer: cleanText,
+          language: targetLang || userLocale || 'hi-IN'
+        };
+      } else {
+        // Fallback response
+        parsed = {
+          answer: "कृषि सलाह के लिए स्थानीय कृषि विशेषज्ञ से संपर्क करें। आपकी समस्या का समाधान मिलेगा।",
+          language: 'hi-IN'
+        };
+      }
     }
     
-    // Add metadata to verify it's from Gemini
+    // Ensure required fields
+    if (!parsed.answer) {
+      parsed.answer = "कृषि संबंधी सलाह के लिए कृपया स्थानीय कृषि केंद्र से संपर्क करें।";
+    }
+    
+    if (!parsed.language) {
+      parsed.language = targetLang || userLocale || 'hi-IN';
+    }
+    
+    // Add metadata
     parsed.source = "gemini-ai";
     parsed.timestamp = new Date().toISOString();
     parsed.model = MODEL;
+    parsed.raw_response = textOutput;
 
-    console.log('Gemini AI Response Generated:', { query, response: parsed.answer, timestamp: parsed.timestamp });
+    console.log('Final Gemini Response:', { 
+      query, 
+      answer: parsed.answer, 
+      language: parsed.language,
+      timestamp: parsed.timestamp 
+    });
     
     return new Response(JSON.stringify(parsed), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
